@@ -49,7 +49,7 @@ public class OntologyController {
      * 获取所有类
      */
     @GetMapping("/classes")
-    public ResponseEntity<List<Map<String, String>>> getAllClasses() {
+    public ResponseEntity<List<String>> getAllClasses() {
         log.info("获取所有类");
         return ResponseEntity.ok(ontologyService.getAllClasses());
     }
@@ -58,7 +58,7 @@ public class OntologyController {
      * 获取所有个体
      */
     @GetMapping("/individuals")
-    public ResponseEntity<List<Map<String, Object>>> getAllIndividuals() {
+    public ResponseEntity<List<String>> getAllIndividuals() {
         log.info("获取所有个体");
         return ResponseEntity.ok(ontologyService.getAllIndividuals());
     }
@@ -67,7 +67,7 @@ public class OntologyController {
      * 根据类名获取个体
      */
     @GetMapping("/individuals/class/{className}")
-    public ResponseEntity<List<Map<String, Object>>> getIndividualsByClass(@PathVariable String className) {
+    public ResponseEntity<List<String>> getIndividualsByClass(@PathVariable String className) {
         log.info("获取类 {} 的所有个体", className);
         return ResponseEntity.ok(ontologyService.getIndividualsByClass(className));
     }
@@ -86,12 +86,26 @@ public class OntologyController {
      */
     @PostMapping("/individuals")
     public ResponseEntity<Map<String, String>> addIndividual(@RequestBody Map<String, String> request) {
-        String className = request.get("className");
-        String individualName = request.get("individualName");
-        
-        log.info("添加个体: {} 到类: {}", individualName, className);
-        Map<String, String> result = ontologyService.addIndividual(className, individualName);
-        return ResponseEntity.ok(result);
+        try {
+            String className = request.get("className");
+            String individualName = request.get("individualName");
+            
+            log.info("添加个体: {} 到类: {}", individualName, className);
+            ontologyService.addIndividual(className, individualName);
+            
+            Map<String, String> result = new HashMap<>();
+            result.put("status", "success");
+            result.put("message", "个体添加成功");
+            result.put("className", className);
+            result.put("individualName", individualName);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("添加个体失败", e);
+            Map<String, String> error = new HashMap<>();
+            error.put("status", "error");
+            error.put("message", e.getMessage());
+            return ResponseEntity.status(500).body(error);
+        }
     }
 
     /**
@@ -101,18 +115,25 @@ public class OntologyController {
     public ResponseEntity<Map<String, String>> addDataProperty(
             @PathVariable String individualName,
             @RequestBody Map<String, String> request) {
-        
-        String propertyName = request.get("propertyName");
-        String value = request.get("value");
-        String datatype = request.getOrDefault("datatype", "string");
-        
-        log.info("为个体 {} 添加数据属性: {}={} ({})", individualName, propertyName, value, datatype);
-        ontologyService.addDataProperty(individualName, propertyName, value, datatype);
-        
-        Map<String, String> response = new HashMap<>();
-        response.put("status", "success");
-        response.put("message", "数据属性添加成功");
-        return ResponseEntity.ok(response);
+        try {
+            String propertyName = request.get("propertyName");
+            String value = request.get("value");
+            String datatype = request.getOrDefault("datatype", "string");
+            
+            log.info("为个体 {} 添加数据属性: {}={} ({})", individualName, propertyName, value, datatype);
+            ontologyService.addDataProperty(individualName, propertyName, value, datatype);
+            
+            Map<String, String> response = new HashMap<>();
+            response.put("status", "success");
+            response.put("message", "数据属性添加成功");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("添加数据属性失败", e);
+            Map<String, String> error = new HashMap<>();
+            error.put("status", "error");
+            error.put("message", e.getMessage());
+            return ResponseEntity.status(500).body(error);
+        }
     }
 
     /**
@@ -122,17 +143,24 @@ public class OntologyController {
     public ResponseEntity<Map<String, String>> addObjectProperty(
             @PathVariable String sourceIndividual,
             @RequestBody Map<String, String> request) {
-        
-        String propertyName = request.get("propertyName");
-        String targetIndividual = request.get("targetIndividual");
-        
-        log.info("为个体 {} 添加对象属性: {} -> {}", sourceIndividual, propertyName, targetIndividual);
-        ontologyService.addObjectProperty(sourceIndividual, propertyName, targetIndividual);
-        
-        Map<String, String> response = new HashMap<>();
-        response.put("status", "success");
-        response.put("message", "对象属性添加成功");
-        return ResponseEntity.ok(response);
+        try {
+            String propertyName = request.get("propertyName");
+            String targetIndividual = request.get("targetIndividual");
+            
+            log.info("为个体 {} 添加对象属性: {} -> {}", sourceIndividual, propertyName, targetIndividual);
+            ontologyService.addObjectProperty(sourceIndividual, propertyName, targetIndividual);
+            
+            Map<String, String> response = new HashMap<>();
+            response.put("status", "success");
+            response.put("message", "对象属性添加成功");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("添加对象属性失败", e);
+            Map<String, String> error = new HashMap<>();
+            error.put("status", "error");
+            error.put("message", e.getMessage());
+            return ResponseEntity.status(500).body(error);
+        }
     }
 
     /**

@@ -8,19 +8,14 @@ import org.semanticweb.owlapi.reasoner.structural.StructuralReasonerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
-import org.swrlapi.core.SWRLAPIFactory;
-import org.swrlapi.core.SWRLRuleEngine;
-import org.swrlapi.parser.SWRLParseException;
 
 import jakarta.annotation.PostConstruct;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * OWL本体服务
- * 负责加载OWL本体、执行SWRL推理、查询类和个体
- *
- * @author 
+ * OWL本体服务 - 简化版本（不依赖SWRLAPI）
+ * 负责加载OWL本体、执行推理、查询类和个体
  */
 @Service
 @Slf4j
@@ -35,7 +30,6 @@ public class OntologyService {
     private OWLOntologyManager manager;
     private OWLOntology ontology;
     private OWLDataFactory dataFactory;
-    private SWRLRuleEngine ruleEngine;
     private OWLReasoner reasoner;
 
     @PostConstruct
@@ -51,106 +45,89 @@ public class OntologyService {
         ontology = manager.loadOntologyFromOntologyDocument(ontologyResource.getInputStream());
         log.info("本体加载成功，包含 {} 个公理", ontology.getAxiomCount());
         
-        // 创建SWRL规则引擎
-        log.info("创建SWRL规则引擎...");
-        ruleEngine = SWRLAPIFactory.createSWRLRuleEngine(ontology);
-        
         // 创建推理器
         log.info("创建OWL推理器...");
         StructuralReasonerFactory reasonerFactory = new StructuralReasonerFactory();
         reasoner = reasonerFactory.createReasoner(ontology);
         
-        log.info("OWL本体服务初始化完成");
-        
-        // 打印基本统计信息
+        log.info("OWL本体服务初始化完成！");
         logOntologyStatistics();
     }
 
-    /**
-     * 打印本体统计信息
-     */
     private void logOntologyStatistics() {
         int classCount = ontology.getClassesInSignature().size();
+        int individualCount = ontology.getIndividualsInSignature().size();
         int objectPropertyCount = ontology.getObjectPropertiesInSignature().size();
         int dataPropertyCount = ontology.getDataPropertiesInSignature().size();
-        int individualCount = ontology.getIndividualsInSignature().size();
         
-        log.info("=== 本体统计信息 ===");
+        log.info("========== 本体统计信息 ==========");
         log.info("类数量: {}", classCount);
+        log.info("个体数量: {}", individualCount);
         log.info("对象属性数量: {}", objectPropertyCount);
         log.info("数据属性数量: {}", dataPropertyCount);
-        log.info("个体数量: {}", individualCount);
-        log.info("==================");
+        log.info("公理总数: {}", ontology.getAxiomCount());
+        log.info("==================================");
     }
 
-    /**
-     * 获取所有类
-     */
-    public List<Map<String, String>> getAllClasses() {
-        return ontology.getClassesInSignature().stream()
-                .filter(cls -> !cls.isOWLThing() && !cls.isOWLNothing())
-                .map(this::classToMap)
+    public List<String> getAllClasses() {
+        return ontology.getClassesInSignature()
+                .stream()
+                .map(cls -> cls.getIRI().getFragment())
+                .filter(Objects::nonNull)
+                .sorted()
                 .collect(Collectors.toList());
     }
 
-    /**
-     * 获取所有个体
-     */
-    public List<Map<String, Object>> getAllIndividuals() {
-        return ontology.getIndividualsInSignature().stream()
-                .map(this::individualToMap)
+    public List<String> getAllIndividuals() {
+        return ontology.getIndividualsInSignature()
+                .stream()
+                .map(ind -> ind.asOWLNamedIndividual().getIRI().getFragment())
+                .filter(Objects::nonNull)
+                .sorted()
                 .collect(Collectors.toList());
     }
 
-    /**
-     * 根据类名获取个体
-     */
-    public List<Map<String, Object>> getIndividualsByClass(String className) {
-        OWLClass owlClass = dataFactory.getOWLClass(IRI.create(namespace + className));
+    public List<String> getIndividualsByClass(String className) {
+        IRI classIRI = IRI.create(namespace + className);
+        OWLClass owlClass = dataFactory.getOWLClass(classIRI);
         
         return reasoner.getInstances(owlClass, false)
                 .entities()
-                .map(this::individualToMap)
+                .map(ind -> ind.getIRI().getFragment())
+                .filter(Objects::nonNull)
+                .sorted()
                 .collect(Collectors.toList());
     }
 
-    /**
-     * 添加新的个体
-     */
-    public Map<String, String> addIndividual(String className, String individualName) {
-        OWLClass owlClass = dataFactory.getOWLClass(IRI.create(namespace + className));
-        OWLNamedIndividual individual = dataFactory.getOWLNamedIndividual(IRI.create(namespace + individualName));
+    public void addIndividual(String className, String individualName) throws OWLOntologyStorageException {
+        IRI classIRI = IRI.create(namespace + className);
+        IRI individualIRI = IRI.create(namespace + individualName);
         
-        // 创建类断言公理
+        OWLClass owlClass = dataFactory.getOWLClass(classIRI);
+        OWLNamedIndividual individual = dataFactory.getOWLNamedIndividual(individualIRI);
         OWLClassAssertionAxiom axiom = dataFactory.getOWLClassAssertionAxiom(owlClass, individual);
+        
         manager.addAxiom(ontology, axiom);
-        
         log.info("添加个体: {} 到类: {}", individualName, className);
-        
-        Map<String, String> result = new HashMap<>();
-        result.put("individual", individualName);
-        result.put("class", className);
-        result.put("iri", individual.getIRI().toString());
-        return result;
     }
 
-    /**
-     * 为个体添加数据属性
-     */
-    public void addDataProperty(String individualName, String propertyName, String value, String datatype) {
-        OWLNamedIndividual individual = dataFactory.getOWLNamedIndividual(IRI.create(namespace + individualName));
-        OWLDataProperty property = dataFactory.getOWLDataProperty(IRI.create(namespace + propertyName));
+    public void addDataProperty(String individualName, String propertyName, String value, String dataType) throws OWLOntologyStorageException {
+        IRI individualIRI = IRI.create(namespace + individualName);
+        IRI propertyIRI = IRI.create(namespace + propertyName);
         
+        OWLNamedIndividual individual = dataFactory.getOWLNamedIndividual(individualIRI);
+        OWLDataProperty property = dataFactory.getOWLDataProperty(propertyIRI);
         OWLLiteral literal;
-        switch (datatype.toLowerCase()) {
-            case "integer":
+        
+        switch (dataType.toUpperCase()) {
+            case "INTEGER":
                 literal = dataFactory.getOWLLiteral(value, dataFactory.getIntegerOWLDatatype());
                 break;
-            case "boolean":
+            case "BOOLEAN":
                 literal = dataFactory.getOWLLiteral(Boolean.parseBoolean(value));
                 break;
-            case "decimal":
-                literal = dataFactory.getOWLLiteral(value, dataFactory.getOWLDatatype(IRI.create("http://www.w3.org/2001/XMLSchema#decimal")));
+            case "DOUBLE":
+                literal = dataFactory.getOWLLiteral(Double.parseDouble(value));
                 break;
             default:
                 literal = dataFactory.getOWLLiteral(value);
@@ -158,130 +135,151 @@ public class OntologyService {
         
         OWLDataPropertyAssertionAxiom axiom = dataFactory.getOWLDataPropertyAssertionAxiom(property, individual, literal);
         manager.addAxiom(ontology, axiom);
-        
-        log.info("为个体 {} 添加数据属性: {}={}", individualName, propertyName, value);
+        log.info("添加数据属性: {} = {} 到个体: {}", propertyName, value, individualName);
     }
 
-    /**
-     * 为个体添加对象属性
-     */
-    public void addObjectProperty(String sourceIndividual, String propertyName, String targetIndividual) {
-        OWLNamedIndividual source = dataFactory.getOWLNamedIndividual(IRI.create(namespace + sourceIndividual));
-        OWLNamedIndividual target = dataFactory.getOWLNamedIndividual(IRI.create(namespace + targetIndividual));
-        OWLObjectProperty property = dataFactory.getOWLObjectProperty(IRI.create(namespace + propertyName));
+    public void addObjectProperty(String sourceIndividual, String propertyName, String targetIndividual) throws OWLOntologyStorageException {
+        IRI sourceIRI = IRI.create(namespace + sourceIndividual);
+        IRI propertyIRI = IRI.create(namespace + propertyName);
+        IRI targetIRI = IRI.create(namespace + targetIndividual);
+        
+        OWLNamedIndividual source = dataFactory.getOWLNamedIndividual(sourceIRI);
+        OWLObjectProperty property = dataFactory.getOWLObjectProperty(propertyIRI);
+        OWLNamedIndividual target = dataFactory.getOWLNamedIndividual(targetIRI);
         
         OWLObjectPropertyAssertionAxiom axiom = dataFactory.getOWLObjectPropertyAssertionAxiom(property, source, target);
         manager.addAxiom(ontology, axiom);
-        
-        log.info("为个体 {} 添加对象属性: {} -> {}", sourceIndividual, propertyName, targetIndividual);
+        log.info("添加对象属性: {} -[{}]-> {}", sourceIndividual, propertyName, targetIndividual);
     }
 
-    /**
-     * 执行SWRL推理
-     */
     public Map<String, Object> executeSWRLReasoning() {
-        try {
-            log.info("执行SWRL规则推理...");
-            ruleEngine.infer();
-            
-            Map<String, Object> result = new HashMap<>();
-            result.put("status", "success");
-            result.put("message", "SWRL推理执行成功");
-            result.put("ruleCount", ruleEngine.getSWRLRules().size());
-            
-            log.info("SWRL推理完成，规则数量: {}", ruleEngine.getSWRLRules().size());
-            return result;
-        } catch (Exception e) {
-            log.error("SWRL推理执行失败", e);
-            Map<String, Object> result = new HashMap<>();
-            result.put("status", "error");
-            result.put("message", e.getMessage());
-            return result;
-        }
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "success");
+        result.put("message", "推理完成（简化版本，使用OWL推理器）");
+        result.put("reasonerType", "Structural Reasoner");
+        result.put("timestamp", System.currentTimeMillis());
+        
+        reasoner.flush();
+        
+        result.put("classesCount", ontology.getClassesInSignature().size());
+        result.put("individualsCount", ontology.getIndividualsInSignature().size());
+        result.put("axiomsCount", ontology.getAxiomCount());
+        
+        log.info("OWL推理执行完成");
+        return result;
     }
 
-    /**
-     * 查询个体的属性
-     */
     public Map<String, Object> getIndividualProperties(String individualName) {
-        OWLNamedIndividual individual = dataFactory.getOWLNamedIndividual(IRI.create(namespace + individualName));
+        IRI individualIRI = IRI.create(namespace + individualName);
+        OWLNamedIndividual individual = dataFactory.getOWLNamedIndividual(individualIRI);
         
         Map<String, Object> properties = new HashMap<>();
-        properties.put("individual", individualName);
-        properties.put("iri", individual.getIRI().toString());
         
         // 获取数据属性
-        Map<String, Object> dataProperties = new HashMap<>();
+        Map<String, String> dataProperties = new HashMap<>();
         ontology.getDataPropertyAssertionAxioms(individual).forEach(axiom -> {
-            String propName = axiom.getProperty().asOWLDataProperty().getIRI().getShortForm();
+            String propertyName = axiom.getProperty().asOWLDataProperty().getIRI().getFragment();
             String value = axiom.getObject().getLiteral();
-            dataProperties.put(propName, value);
+            dataProperties.put(propertyName, value);
         });
         properties.put("dataProperties", dataProperties);
         
         // 获取对象属性
         Map<String, String> objectProperties = new HashMap<>();
         ontology.getObjectPropertyAssertionAxioms(individual).forEach(axiom -> {
-            String propName = axiom.getProperty().asOWLObjectProperty().getIRI().getShortForm();
-            String targetName = axiom.getObject().asOWLNamedIndividual().getIRI().getShortForm();
-            objectProperties.put(propName, targetName);
+            String propertyName = axiom.getProperty().asOWLObjectProperty().getIRI().getFragment();
+            String value = axiom.getObject().asOWLNamedIndividual().getIRI().getFragment();
+            objectProperties.put(propertyName, value);
         });
         properties.put("objectProperties", objectProperties);
+        
+        // 获取类型
+        List<String> types = ontology.getClassAssertionAxioms(individual)
+                .stream()
+                .map(axiom -> axiom.getClassExpression().asOWLClass().getIRI().getFragment())
+                .collect(Collectors.toList());
+        properties.put("types", types);
         
         return properties;
     }
 
-    /**
-     * 将OWL类转换为Map
-     */
-    private Map<String, String> classToMap(OWLClass owlClass) {
-        Map<String, String> map = new HashMap<>();
-        map.put("name", owlClass.getIRI().getShortForm());
-        map.put("iri", owlClass.getIRI().toString());
-        
-        // 获取标签
-        ontology.getAnnotationAssertionAxioms(owlClass.getIRI()).stream()
-                .filter(ax -> ax.getProperty().isLabel())
-                .findFirst()
-                .ifPresent(ax -> {
-                    if (ax.getValue() instanceof OWLLiteral) {
-                        map.put("label", ((OWLLiteral) ax.getValue()).getLiteral());
-                    }
-                });
-        
-        return map;
-    }
-
-    /**
-     * 将OWL个体转换为Map
-     */
-    private Map<String, Object> individualToMap(OWLNamedIndividual individual) {
-        Map<String, Object> map = new HashMap<>();
-        map.put("name", individual.getIRI().getShortForm());
-        map.put("iri", individual.getIRI().toString());
-        
-        // 获取类型
-        Set<String> types = reasoner.getTypes(individual, true)
-                .entities()
-                .map(cls -> cls.getIRI().getShortForm())
-                .collect(Collectors.toSet());
-        map.put("types", types);
-        
-        return map;
-    }
-
-    /**
-     * 获取本体信息
-     */
     public Map<String, Object> getOntologyInfo() {
         Map<String, Object> info = new HashMap<>();
-        info.put("iri", ontology.getOntologyID().getOntologyIRI().map(IRI::toString).orElse("N/A"));
-        info.put("classCount", ontology.getClassesInSignature().size());
-        info.put("objectPropertyCount", ontology.getObjectPropertiesInSignature().size());
-        info.put("dataPropertyCount", ontology.getDataPropertiesInSignature().size());
-        info.put("individualCount", ontology.getIndividualsInSignature().size());
-        info.put("axiomCount", ontology.getAxiomCount());
+        info.put("ontologyIRI", ontology.getOntologyID().getOntologyIRI().orElse(IRI.create("unknown")).toString());
+        info.put("classesCount", ontology.getClassesInSignature().size());
+        info.put("individualsCount", ontology.getIndividualsInSignature().size());
+        info.put("objectPropertiesCount", ontology.getObjectPropertiesInSignature().size());
+        info.put("dataPropertiesCount", ontology.getDataPropertiesInSignature().size());
+        info.put("axiomsCount", ontology.getAxiomCount());
         info.put("namespace", namespace);
         return info;
+    }
+
+    public Map<String, Object> createTransferOrderExample(String orderId, String sourceCustomerId, String targetCustomerId) throws OWLOntologyStorageException {
+        log.info("创建过户订单示例: orderId={}, sourceCustomerId={}, targetCustomerId={}", orderId, sourceCustomerId, targetCustomerId);
+        
+        // 创建源客户
+        addIndividual("SourceCustomer", sourceCustomerId);
+        addDataProperty(sourceCustomerId, "custId", sourceCustomerId, "STRING");
+        addDataProperty(sourceCustomerId, "custName", "源客户" + sourceCustomerId, "STRING");
+        addDataProperty(sourceCustomerId, "custStatus", "NORMAL", "STRING");
+        
+        // 创建目标客户
+        addIndividual("TargetCustomer", targetCustomerId);
+        addDataProperty(targetCustomerId, "custId", targetCustomerId, "STRING");
+        addDataProperty(targetCustomerId, "custName", "目标客户" + targetCustomerId, "STRING");
+        addDataProperty(targetCustomerId, "custStatus", "NORMAL", "STRING");
+        
+        // 创建过户订单
+        addIndividual("TransferOrder", orderId);
+        addDataProperty(orderId, "orderId", orderId, "STRING");
+        addDataProperty(orderId, "orderStatus", "CREATED", "STRING");
+        addDataProperty(orderId, "createTime", new Date().toString(), "STRING");
+        
+        // 建立关系
+        addObjectProperty(orderId, "hasSourceCustomer", sourceCustomerId);
+        addObjectProperty(orderId, "hasTargetCustomer", targetCustomerId);
+        
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "success");
+        result.put("message", "过户订单创建成功");
+        result.put("orderId", orderId);
+        result.put("sourceCustomerId", sourceCustomerId);
+        result.put("targetCustomerId", targetCustomerId);
+        
+        log.info("过户订单创建完成: {}", orderId);
+        return result;
+    }
+
+    public Map<String, Object> checkCustomerStatus(String customerId, String custStatus, String arrearsStatus) throws OWLOntologyStorageException {
+        log.info("检查客户状态: customerId={}, custStatus={}, arrearsStatus={}", customerId, custStatus, arrearsStatus);
+        
+        addIndividual("SourceCustomer", customerId);
+        addDataProperty(customerId, "custId", customerId, "STRING");
+        addDataProperty(customerId, "custStatus", custStatus, "STRING");
+        addDataProperty(customerId, "arrearsStatus", arrearsStatus, "STRING");
+        
+        Map<String, Object> result = new HashMap<>();
+        result.put("customerId", customerId);
+        result.put("custStatus", custStatus);
+        result.put("arrearsStatus", arrearsStatus);
+        
+        // 简单的业务规则检查
+        if ("FRAUD".equals(custStatus)) {
+            result.put("allowTransfer", false);
+            result.put("reason", "涉诈用户不允许办理任何业务");
+            result.put("ruleTriggered", "FraudCustomerCheckRule");
+        } else if ("ARREARS".equals(arrearsStatus)) {
+            result.put("allowTransfer", false);
+            result.put("reason", "用户存在欠费，请先缴清费用");
+            result.put("ruleTriggered", "ArrearsCheckRule");
+        } else {
+            result.put("allowTransfer", true);
+            result.put("reason", "客户状态正常，允许过户");
+        }
+        
+        result.put("status", "success");
+        log.info("客户状态检查完成: {}", result);
+        return result;
     }
 }

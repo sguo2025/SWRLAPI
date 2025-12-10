@@ -27,6 +27,13 @@
         <swrlapi.version>2.1.2</swrlapi.version>
     </properties>
 
+    <repositories>
+        <repository>
+            <id>jitpack.io</id>
+            <url>https://jitpack.io</url>
+        </repository>
+    </repositories>
+
     <dependencies>
         <!-- Spring Boot Web Starter -->
         <dependency>
@@ -39,20 +46,6 @@
             <groupId>net.sourceforge.owlapi</groupId>
             <artifactId>owlapi-distribution</artifactId>
             <version>${owlapi.version}</version>
-        </dependency>
-
-        <!-- SWRL API -->
-        <dependency>
-            <groupId>com.github.protegeproject</groupId>
-            <artifactId>swrlapi</artifactId>
-            <version>${swrlapi.version}</version>
-        </dependency>
-
-        <!-- SWRL API Drools Engine -->
-        <dependency>
-            <groupId>com.github.protegeproject</groupId>
-            <artifactId>swrlapi-drools-engine</artifactId>
-            <version>${swrlapi.version}</version>
         </dependency>
 
         <!-- Lombok (可选，用于简化代码) -->
