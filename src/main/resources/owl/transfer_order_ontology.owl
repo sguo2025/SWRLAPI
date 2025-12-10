@@ -1,0 +1,914 @@
+@prefix : <https://iwhalecloud.com/ontology/transfer#> .
+@prefix transfer: <https://iwhalecloud.com/ontology/transfer#> .
+@prefix tmforum: <https://tmforum.org/oda/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+
+transfer:TransferOrderOntology a owl:Ontology ;
+    rdfs:label "BSS4.0客户过户受理本体"@zh ;
+    dcterms:creator "sguo"@zh ;
+    owl:versionInfo "1.0.0" ;
+    rdfs:comment "基于TM Forum ODA (SID/eTOM/Components/OpenAPI) 的客户过户语义模型，用于智能体推理与Neo4j图谱同步。"@zh .
+
+# =========================
+# Class definitions
+# =========================
+
+transfer:DomainObject a owl:Class ;
+    rdfs:label "业务域对象"@zh ;
+    rdfs:comment "客户、订单、订阅等实体的统一父类。"@zh .
+
+transfer:SourceCustomer a owl:Class ;
+    rdfs:subClassOf transfer:DomainObject , tmforum:Customer ;
+    rdfs:label "源客户"@zh ;
+    rdfs:comment "持有待转移资源的客户,继承TMF SID Customer定义。"@zh .
+
+transfer:TargetCustomer a owl:Class ;
+    rdfs:subClassOf transfer:DomainObject , tmforum:Customer ;
+    rdfs:label "目标客户"@zh ;
+    rdfs:comment "过户接收方客户，完成鉴权后才能绑定订阅。"@zh .
+
+transfer:TransferableSubscription a owl:Class ;
+    rdfs:subClassOf transfer:DomainObject , tmforum:ProductOrderItem ;
+    rdfs:label "可转移订阅"@zh ;
+    rdfs:comment "可参与过户的产品实例或业务号码，引用SID Product Order Item定义。"@zh .
+
+transfer:TransferOrder a owl:Class ;
+    rdfs:subClassOf transfer:DomainObject , tmforum:CustomerOrder ;
+    rdfs:label "过户订单"@zh ;
+    rdfs:comment "承载过户流程状态与上下文的客户订单，继承TMF Customer Order语义。"@zh .
+
+transfer:AuthorizationRecord a owl:Class ;
+    rdfs:subClassOf transfer:DomainObject , tmforum:CustomerInteraction ;
+    rdfs:label "鉴权记录"@zh ;
+    rdfs:comment "记录客户鉴权过程与结果，映射TMF Customer Interaction。"@zh .
+
+transfer:PaymentRecord a owl:Class ;
+    rdfs:subClassOf transfer:DomainObject , tmforum:Payment ;
+    rdfs:label "缴费记录"@zh ;
+    rdfs:comment "过户缴费及确认信息，映射TMF Payment实体。"@zh .
+
+transfer:ProcessStep a owl:Class ;
+    rdfs:subClassOf tmforum:BusinessProcess ;
+    rdfs:label "流程步骤"@zh ;
+    rdfs:comment "与eTOM节点对齐的受理步骤抽象。"@zh .
+
+# 8个具体的过户流程步骤
+transfer:Step1_LocateSourceCustomer a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ;
+    rdfs:label "步骤1-定位源客户"@zh ;
+    rdfs:comment "查询源客户列表并进行鉴权"@zh .
+
+transfer:Step2_SelectTransferNumber a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ;
+    rdfs:label "步骤2-过户号码选择"@zh ;
+    rdfs:comment "查询客户产品实例，让客户选择过户号码"@zh .
+
+transfer:Step3_CreateCustomerOrder a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ;
+    rdfs:label "步骤3-创建客户订单"@zh ;
+    rdfs:comment "创建BSS客户订单，支持从此步骤回退到步骤1"@zh .
+
+transfer:Step4_InitTransferBusiness a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ;
+    rdfs:label "步骤4-过户业务初始化"@zh ;
+    rdfs:comment "初始化产品实例受理"@zh .
+
+transfer:Step5_InitCommonAttributes a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ;
+    rdfs:label "步骤5-公共属性初始化"@zh ;
+    rdfs:comment "初始化公共属性"@zh .
+
+transfer:Step6_ConfirmTargetCustomer a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ;
+    rdfs:label "步骤6-目标客户确认"@zh ;
+    rdfs:comment "查询并鉴权目标客户"@zh .
+
+transfer:Step7_SaveOrder a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ;
+    rdfs:label "步骤7-订单保存"@zh ;
+    rdfs:comment "提交并保存订单"@zh .
+
+transfer:Step8_ConfirmOrder a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ;
+    rdfs:label "步骤8-订单确认"@zh ;
+    rdfs:comment "收银台确认订单"@zh .
+
+transfer:ODAComponent a owl:Class ;
+    rdfs:subClassOf tmforum:Component ;
+    rdfs:label "ODA组件"@zh ;
+    rdfs:comment "与TMF ODA标准组件对齐的能力单元。"@zh .
+
+transfer:OpenAPI a owl:Class ;
+    rdfs:subClassOf tmforum:API ;
+    rdfs:label "开放API"@zh ;
+    rdfs:comment "与TMF Open API规范对齐的接口定义。"@zh .
+
+transfer:BusinessLogic a owl:Class ;
+    rdfs:subClassOf tmforum:Rule ;
+    rdfs:label "业务规则"@zh ;
+    rdfs:comment "SWRL/决策表规则，用于约束流程执行。"@zh .
+
+# =========================
+# Object properties
+# =========================
+
+transfer:hasSourceCustomer a owl:ObjectProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range transfer:SourceCustomer ;
+    rdfs:label "关联源客户"@zh .
+
+transfer:hasTargetCustomer a owl:ObjectProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range transfer:TargetCustomer ;
+    rdfs:label "关联目标客户"@zh .
+
+transfer:ownsSubscription a owl:ObjectProperty ;
+    rdfs:domain transfer:SourceCustomer ;
+    rdfs:range transfer:TransferableSubscription ;
+    rdfs:label "持有订阅"@zh .
+
+transfer:changesSubscription a owl:ObjectProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range transfer:TransferableSubscription ;
+    rdfs:label "变更订阅"@zh .
+
+transfer:hasAuthorization a owl:ObjectProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range transfer:AuthorizationRecord ;
+    rdfs:label "关联鉴权记录"@zh .
+
+transfer:hasPayment a owl:ObjectProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range transfer:PaymentRecord ;
+    rdfs:label "关联缴费记录"@zh .
+
+transfer:forCustomer a owl:ObjectProperty ;
+    rdfs:domain transfer:AuthorizationRecord ;
+    rdfs:range tmforum:Customer ;
+    rdfs:label "针对客户"@zh .
+
+transfer:settlesOrder a owl:ObjectProperty ;
+    rdfs:domain transfer:PaymentRecord ;
+    rdfs:range transfer:TransferOrder ;
+    rdfs:label "结算订单"@zh .
+
+transfer:requiresEntity a owl:ObjectProperty ;
+    rdfs:domain transfer:ProcessStep ;
+    rdfs:range transfer:DomainObject ;
+    rdfs:label "需要实体"@zh .
+
+transfer:producesEntity a owl:ObjectProperty ;
+    rdfs:domain transfer:ProcessStep ;
+    rdfs:range transfer:DomainObject ;
+    rdfs:label "输出实体"@zh .
+
+transfer:precedes a owl:ObjectProperty ;
+    rdfs:domain transfer:ProcessStep ;
+    rdfs:range transfer:ProcessStep ;
+    rdfs:label "后续步骤"@zh .
+
+transfer:mapsToComponent a owl:ObjectProperty ;
+    rdfs:domain transfer:ProcessStep ;
+    rdfs:range transfer:ODAComponent ;
+    rdfs:label "映射组件"@zh .
+
+transfer:usesAPI a owl:ObjectProperty ;
+    rdfs:domain transfer:ProcessStep ;
+    rdfs:range transfer:OpenAPI ;
+    rdfs:label "调用API"@zh .
+
+transfer:enforcesRule a owl:ObjectProperty ;
+    rdfs:domain transfer:ProcessStep ;
+    rdfs:range transfer:BusinessLogic ;
+    rdfs:label "执行规则"@zh .
+
+# =========================
+# Datatype properties
+# =========================
+
+transfer:custId a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:string ;
+    rdfs:label "客户ID"@zh .
+
+transfer:custName a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:string ;
+    rdfs:label "客户名称"@zh .
+
+transfer:certType a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:string ;
+    rdfs:label "证件类型"@zh .
+
+transfer:certNumber a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:string ;
+    rdfs:label "证件号码"@zh .
+
+transfer:regionId a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:string ;
+    rdfs:label "区域编码"@zh .
+
+transfer:approveLevel a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:string ;
+    rdfs:label "审批等级"@zh .
+
+transfer:accNum a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferableSubscription ;
+    rdfs:range xsd:string ;
+    rdfs:label "业务号码"@zh .
+
+transfer:prodInstId a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferableSubscription ;
+    rdfs:range xsd:string ;
+    rdfs:label "产品实例ID"@zh .
+
+transfer:prodId a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferableSubscription ;
+    rdfs:range xsd:string ;
+    rdfs:label "产品ID"@zh .
+
+transfer:prodName a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferableSubscription ;
+    rdfs:range xsd:string ;
+    rdfs:label "产品名称"@zh .
+
+transfer:serviceOfferId a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferableSubscription ;
+    rdfs:range xsd:string ;
+    rdfs:label "服务包ID"@zh .
+
+transfer:custOrderId a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range xsd:string ;
+    rdfs:label "客户订单号"@zh .
+
+transfer:orderId a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range xsd:string ;
+    rdfs:label "订单ID"@zh .
+
+transfer:orderStatus a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range xsd:string ;
+    rdfs:label "订单状态"@zh .
+
+transfer:channelId a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range xsd:string ;
+    rdfs:label "渠道ID"@zh .
+
+transfer:sceneCode a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range xsd:string ;
+    rdfs:label "场景编码"@zh .
+
+transfer:operatorId a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range xsd:string ;
+    rdfs:label "受理工号"@zh .
+
+transfer:authId a owl:DatatypeProperty ;
+    rdfs:domain transfer:AuthorizationRecord ;
+    rdfs:range xsd:string ;
+    rdfs:label "鉴权ID"@zh .
+
+transfer:searchType a owl:DatatypeProperty ;
+    rdfs:domain transfer:AuthorizationRecord ;
+    rdfs:range xsd:string ;
+    rdfs:label "查询类型"@zh .
+
+transfer:isTarget a owl:DatatypeProperty ;
+    rdfs:domain transfer:AuthorizationRecord ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "是否目标客户"@zh .
+
+transfer:authResult a owl:DatatypeProperty ;
+    rdfs:domain transfer:AuthorizationRecord ;
+    rdfs:range xsd:string ;
+    rdfs:label "鉴权结果"@zh .
+
+transfer:authTime a owl:DatatypeProperty ;
+    rdfs:domain transfer:AuthorizationRecord ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "鉴权时间"@zh .
+
+transfer:paymentId a owl:DatatypeProperty ;
+    rdfs:domain transfer:PaymentRecord ;
+    rdfs:range xsd:string ;
+    rdfs:label "缴费ID"@zh .
+
+transfer:amount a owl:DatatypeProperty ;
+    rdfs:domain transfer:PaymentRecord ;
+    rdfs:range xsd:decimal ;
+    rdfs:label "金额"@zh .
+
+transfer:currency a owl:DatatypeProperty ;
+    rdfs:domain transfer:PaymentRecord ;
+    rdfs:range xsd:string ;
+    rdfs:label "货币"@zh .
+
+transfer:payChannel a owl:DatatypeProperty ;
+    rdfs:domain transfer:PaymentRecord ;
+    rdfs:range xsd:string ;
+    rdfs:label "支付渠道"@zh .
+
+transfer:paymentStatus a owl:DatatypeProperty ;
+    rdfs:domain transfer:PaymentRecord ;
+    rdfs:range xsd:string ;
+    rdfs:label "支付状态"@zh .
+
+transfer:receiptNo a owl:DatatypeProperty ;
+    rdfs:domain transfer:PaymentRecord ;
+    rdfs:range xsd:string ;
+    rdfs:label "票据号"@zh .
+
+transfer:componentCode a owl:DatatypeProperty ;
+    rdfs:domain transfer:ODAComponent ;
+    rdfs:range xsd:string ;
+    rdfs:label "组件编码"@zh .
+
+transfer:componentName a owl:DatatypeProperty ;
+    rdfs:domain transfer:ODAComponent ;
+    rdfs:range xsd:string ;
+    rdfs:label "组件名称"@zh .
+
+transfer:tmfComponent a owl:DatatypeProperty ;
+    rdfs:domain transfer:ODAComponent ;
+    rdfs:range xsd:string ;
+    rdfs:label "TMF组件引用"@zh .
+
+transfer:apiCode a owl:DatatypeProperty ;
+    rdfs:domain transfer:OpenAPI ;
+    rdfs:range xsd:string ;
+    rdfs:label "API编码"@zh .
+
+transfer:httpMethod a owl:DatatypeProperty ;
+    rdfs:domain transfer:OpenAPI ;
+    rdfs:range xsd:string ;
+    rdfs:label "HTTP方法"@zh .
+
+transfer:endpoint a owl:DatatypeProperty ;
+    rdfs:domain transfer:OpenAPI ;
+    rdfs:range xsd:string ;
+    rdfs:label "端点"@zh .
+
+transfer:tmfApi a owl:DatatypeProperty ;
+    rdfs:domain transfer:OpenAPI ;
+    rdfs:range xsd:string ;
+    rdfs:label "TMF API版本"@zh .
+
+transfer:logicCode a owl:DatatypeProperty ;
+    rdfs:domain transfer:BusinessLogic ;
+    rdfs:range xsd:string ;
+    rdfs:label "规则编码"@zh .
+
+transfer:logicType a owl:DatatypeProperty ;
+    rdfs:domain transfer:BusinessLogic ;
+    rdfs:range xsd:string ;
+    rdfs:label "规则类型"@zh .
+
+transfer:logicExpression a owl:DatatypeProperty ;
+    rdfs:domain transfer:BusinessLogic ;
+    rdfs:range xsd:string ;
+    rdfs:label "规则表达式"@zh .
+
+# 流程控制属性
+transfer:currentStepNumber a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range xsd:integer ;
+    rdfs:label "当前步骤编号"@zh ;
+    rdfs:comment "标识订单当前所在的步骤 (1-8)"@zh .
+
+transfer:totalSteps a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range xsd:integer ;
+    rdfs:label "总步骤数"@zh ;
+    rdfs:comment "固定值8，表示完整过户流程的总步骤数"@zh .
+
+transfer:nextStepNumber a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range xsd:integer ;
+    rdfs:label "下一步骤编号"@zh ;
+    rdfs:comment "推理出的下一步骤编号"@zh .
+
+transfer:canRollback a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "是否可回退"@zh ;
+    rdfs:comment "步骤3可以回退到步骤1"@zh .
+
+transfer:rollbackToStep a owl:DatatypeProperty ;
+    rdfs:domain transfer:TransferOrder ;
+    rdfs:range xsd:integer ;
+    rdfs:label "回退到步骤"@zh ;
+    rdfs:comment "可回退的目标步骤编号"@zh .
+
+transfer:stepStatus a owl:DatatypeProperty ;
+    rdfs:domain transfer:ProcessStep ;
+    rdfs:range xsd:string ;
+    rdfs:label "步骤状态"@zh ;
+    rdfs:comment "PENDING/IN_PROGRESS/COMPLETED/FAILED/ROLLED_BACK"@zh .
+
+transfer:stepStartTime a owl:DatatypeProperty ;
+    rdfs:domain transfer:ProcessStep ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "步骤开始时间"@zh .
+
+transfer:stepEndTime a owl:DatatypeProperty ;
+    rdfs:domain transfer:ProcessStep ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "步骤结束时间"@zh .
+
+transfer:stepErrorMessage a owl:DatatypeProperty ;
+    rdfs:domain transfer:ProcessStep ;
+    rdfs:range xsd:string ;
+    rdfs:label "步骤错误信息"@zh .
+
+transfer:searchValue a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:string ;
+    rdfs:label "查询值"@zh ;
+    rdfs:comment "用于客户查询的值（姓名/手机号/证件号）"@zh .
+
+transfer:pageNum a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:integer ;
+    rdfs:label "页码"@zh .
+
+transfer:pageSize a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:integer ;
+    rdfs:label "页大小"@zh .
+
+transfer:totalCount a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:integer ;
+    rdfs:label "总数"@zh .
+
+# 客户状态与业务规则相关属性
+transfer:custStatus a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:string ;
+    rdfs:label "客户状态"@zh ;
+    rdfs:comment "客户状态，如NORMAL/FRAUD/SUSPENDED"@zh .
+
+transfer:arrearsStatus a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:string ;
+    rdfs:label "欠费状态"@zh ;
+    rdfs:comment "客户欠费状态，如NO_ARREARS/ARREARS"@zh .
+
+transfer:blockBusinessOperation a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "阻断业务操作"@zh ;
+    rdfs:comment "是否阻断所有业务操作"@zh .
+
+transfer:blockTransferOperation a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:boolean ;
+    rdfs:label "阻断过户操作"@zh ;
+    rdfs:comment "是否阻断过户业务操作"@zh .
+
+transfer:businessAction a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:string ;
+    rdfs:label "业务动作"@zh ;
+    rdfs:comment "推理得出的业务动作，如STOP_ALL_OPERATIONS/STOP_TRANSFER"@zh .
+
+transfer:actionMessage a owl:DatatypeProperty ;
+    rdfs:domain transfer:DomainObject ;
+    rdfs:range xsd:string ;
+    rdfs:label "操作提示信息"@zh ;
+    rdfs:comment "给用户的操作提示或错误信息"@zh .
+
+# =========================
+# Annotation properties
+# =========================
+
+transfer:stepCode a owl:AnnotationProperty .
+transfer:etomRef a owl:AnnotationProperty .
+
+# =========================
+# Individuals: ODA components
+# =========================
+
+transfer:PartyManagementComponent a transfer:ODAComponent ;
+    transfer:componentCode "PartyManagementComponent" ;
+    transfer:componentName "Party Management Component" ;
+    transfer:tmfComponent "ODA.PartyManagement" ;
+    rdfs:label "客户管理组件"@zh .
+
+transfer:OrderCaptureComponent a transfer:ODAComponent ;
+    transfer:componentCode "OrderCaptureComponent" ;
+    transfer:componentName "Order Capture Component" ;
+    transfer:tmfComponent "ODA.CustomerOrderManagement" ;
+    rdfs:label "订单受理组件"@zh .
+
+transfer:ServiceConfigurationComponent a transfer:ODAComponent ;
+    transfer:componentCode "ServiceConfigurationComponent" ;
+    transfer:componentName "Service Configuration Component" ;
+    transfer:tmfComponent "ODA.ServiceConfiguration" ;
+    rdfs:label "服务配置组件"@zh .
+
+transfer:BillingManagementComponent a transfer:ODAComponent ;
+    transfer:componentCode "BillingManagementComponent" ;
+    transfer:componentName "Billing Management Component" ;
+    transfer:tmfComponent "ODA.BillingManagement" ;
+    rdfs:label "计费管理组件"@zh .
+
+# =========================
+# Individuals: TMF Open APIs
+# =========================
+
+transfer:ICustomerLocationService_listCustomers a transfer:OpenAPI ;
+    transfer:apiCode "ICustomerLocationService.listCustomers" ;
+    transfer:httpMethod "POST" ;
+    transfer:endpoint "/customer/list" ;
+    transfer:tmfApi "tmf-api-party-v4" ;
+    rdfs:label "客户列表查询API"@zh .
+
+transfer:ICustomerLocationService_getCustProdInst a transfer:OpenAPI ;
+    transfer:apiCode "ICustomerLocationService.getCustProdInst" ;
+    transfer:httpMethod "POST" ;
+    transfer:endpoint "/customer/prodInst" ;
+    transfer:tmfApi "tmf-api-product-inventory-v4" ;
+    rdfs:label "客户产品实例查询API"@zh .
+
+transfer:ICustomerAuthService_authCustomer a transfer:OpenAPI ;
+    transfer:apiCode "ICustomerAuthService.authCustomer" ;
+    transfer:httpMethod "POST" ;
+    transfer:endpoint "/customer/auth" ;
+    transfer:tmfApi "tmf-api-party-role-v4" ;
+    rdfs:label "客户鉴权API"@zh .
+
+transfer:IOrderMgrService_createCustomerOrder a transfer:OpenAPI ;
+    transfer:apiCode "IOrderMgrService.createCustomerOrder" ;
+    transfer:httpMethod "POST" ;
+    transfer:endpoint "/order/create" ;
+    transfer:tmfApi "tmf-api-customer-order-v4" ;
+    rdfs:label "创建客户订单API"@zh .
+
+transfer:IAppCardAcceptOptService_smartInitProdInstAcceptance a transfer:OpenAPI ;
+    transfer:apiCode "IAppCardAcceptOptService.smartInitProdInstAcceptance" ;
+    transfer:httpMethod "POST" ;
+    transfer:endpoint "/transfer/init" ;
+    transfer:tmfApi "tmf-api-service-activation-v4" ;
+    rdfs:label "过户业务初始化API"@zh .
+
+transfer:IAppCardAcceptOptService_initCommonAttr a transfer:OpenAPI ;
+    transfer:apiCode "IAppCardAcceptOptService.initCommonAttr" ;
+    transfer:httpMethod "POST" ;
+    transfer:endpoint "/transfer/initCommon" ;
+    transfer:tmfApi "tmf-api-service-activation-v4" ;
+    rdfs:label "公共属性初始化API"@zh .
+
+transfer:BusinessAcceptService_saveOrder a transfer:OpenAPI ;
+    transfer:apiCode "BusinessAcceptService.saveOrder" ;
+    transfer:httpMethod "POST" ;
+    transfer:endpoint "/order/save" ;
+    transfer:tmfApi "tmf-api-customer-order-v4" ;
+    rdfs:label "订单保存API"@zh .
+
+transfer:CashierTaiService_updateConfirm a transfer:OpenAPI ;
+    transfer:apiCode "CashierTaiService.updateConfirm" ;
+    transfer:httpMethod "POST" ;
+    transfer:endpoint "/order/confirm" ;
+    transfer:tmfApi "tmf-api-billing-management-v4" ;
+    rdfs:label "订单确认API"@zh .
+
+# =========================
+# Individuals: Business rules
+# =========================
+
+transfer:TransferEligibilityRule a transfer:BusinessLogic ;
+    transfer:logicCode "TransferEligibilityRule" ;
+    transfer:logicType "SWRL" ;
+    transfer:logicExpression "SourceCustomer(?s) ^ AuthorizationRecord(?a) ^ hasAuthorization(?o,?a) ^ authResult(?a,\"PASSED\") -> isEligibleForTransfer(?o,true)" ;
+    rdfs:label "过户前提校验规则"@zh .
+
+transfer:MultiInstanceSelectionRule a transfer:BusinessLogic ;
+    transfer:logicCode "MultiInstanceSelectionRule" ;
+    transfer:logicType "DecisionTable" ;
+    transfer:logicExpression "IF subscriptionCount > 1 THEN customerSelectionRequired = true" ;
+    rdfs:label "多号码选择规则"@zh .
+
+transfer:PaymentConfirmationRule a transfer:BusinessLogic ;
+    transfer:logicCode "PaymentConfirmationRule" ;
+    transfer:logicType "SWRL" ;
+    transfer:logicExpression "TransferOrder(?o) ^ PaymentRecord(?p) ^ paymentStatus(?p,\"SETTLED\") -> canConfirmOrder(?o,true)" ;
+    rdfs:label "缴费确认规则"@zh .
+
+transfer:FraudCustomerCheckRule a transfer:BusinessLogic ;
+    transfer:logicCode "FraudCustomerCheckRule" ;
+    transfer:logicType "SWRL" ;
+    transfer:logicExpression "DomainObject(?c) ^ custStatus(?c,\"FRAUD\") ^ (SourceCustomer(?c) | TargetCustomer(?c)) -> blockBusinessOperation(?c,true) ^ businessAction(?c,\"STOP_ALL_OPERATIONS\") ^ actionMessage(?c,\"涉诈用户不允许办理任何业务，待涉诈解除后方可继续办理\")" ;
+    rdfs:label "客户涉诈检查规则"@zh ;
+    rdfs:comment "如果客户状态是涉诈，限制提示涉诈用户不允许办理任何业务，待涉诈解除后方可继续办理。"@zh .
+
+transfer:ArrearsCheckRule a transfer:BusinessLogic ;
+    transfer:logicCode "ArrearsCheckRule" ;
+    transfer:logicType "SWRL" ;
+    transfer:logicExpression "SourceCustomer(?s) ^ arrearsStatus(?s,\"ARREARS\") ^ ownsSubscription(?s,?sub) -> blockTransferOperation(?s,true) ^ businessAction(?s,\"STOP_TRANSFER\") ^ actionMessage(?s,\"用户存在欠费，不允许办理过户业务，请先缴清费用\")" ;
+    rdfs:label "客户欠费检查规则"@zh ;
+    rdfs:comment "判断过户用户是否欠费状态，欠费限制提示用户不允许办理过户业务，待费用缴清后方可继续办理。"@zh .
+
+# =========================
+# Process step specializations
+# =========================
+
+transfer:LocateSourceCustomerStep a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ,
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:SourceCustomer
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:producesEntity ;
+          owl:someValuesFrom transfer:SourceCustomer
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:precedes ;
+          owl:someValuesFrom transfer:VerifySourceCustomerStep
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:mapsToComponent ;
+          owl:hasValue transfer:PartyManagementComponent
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:usesAPI ;
+          owl:hasValue transfer:ICustomerLocationService_listCustomers
+        ] ;
+    transfer:stepCode "LOCATE_SOURCE" ;
+    transfer:etomRef "CRM.Customer Management > Identify Customer" ;
+    rdfs:label "定位源客户步骤"@zh .
+
+transfer:VerifySourceCustomerStep a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ,
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:SourceCustomer
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:producesEntity ;
+          owl:someValuesFrom transfer:AuthorizationRecord
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:precedes ;
+          owl:someValuesFrom transfer:SelectTransferNumberStep
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:mapsToComponent ;
+          owl:hasValue transfer:PartyManagementComponent
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:usesAPI ;
+          owl:hasValue transfer:ICustomerAuthService_authCustomer
+        ] ;
+    transfer:stepCode "VERIFY_SOURCE" ;
+    transfer:etomRef "CRM.Customer Management > Validate Customer" ;
+    rdfs:label "源客户鉴权步骤"@zh .
+
+transfer:SelectTransferNumberStep a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ,
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:TransferableSubscription
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:producesEntity ;
+          owl:someValuesFrom transfer:TransferableSubscription
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:precedes ;
+          owl:someValuesFrom transfer:CreateOrderStep
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:mapsToComponent ;
+          owl:hasValue transfer:ServiceConfigurationComponent
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:usesAPI ;
+          owl:hasValue transfer:ICustomerLocationService_getCustProdInst
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:enforcesRule ;
+          owl:hasValue transfer:MultiInstanceSelectionRule
+        ] ;
+    transfer:stepCode "SELECT_SUBSCRIPTION" ;
+    transfer:etomRef "Fulfillment.Customer Order Handling > Capture Order" ;
+    rdfs:label "过户号码选择步骤"@zh .
+
+transfer:CreateOrderStep a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ,
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:SourceCustomer
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:TransferableSubscription
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:producesEntity ;
+          owl:someValuesFrom transfer:TransferOrder
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:precedes ;
+          owl:someValuesFrom transfer:InitTransferStep
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:mapsToComponent ;
+          owl:hasValue transfer:OrderCaptureComponent
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:usesAPI ;
+          owl:hasValue transfer:IOrderMgrService_createCustomerOrder
+        ] ;
+    transfer:stepCode "CREATE_ORDER" ;
+    transfer:etomRef "Fulfillment.Customer Order Handling > Capture Order" ;
+    rdfs:label "创建客户订单步骤"@zh .
+
+transfer:InitTransferStep a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ,
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:TransferOrder
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:TransferableSubscription
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:producesEntity ;
+          owl:someValuesFrom transfer:TransferOrder
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:precedes ;
+          owl:someValuesFrom transfer:InitCommonAttrStep
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:mapsToComponent ;
+          owl:hasValue transfer:ServiceConfigurationComponent
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:usesAPI ;
+          owl:hasValue transfer:IAppCardAcceptOptService_smartInitProdInstAcceptance
+        ] ;
+    transfer:stepCode "INIT_TRANSFER" ;
+    transfer:etomRef "Fulfillment.Service Configuration & Activation" ;
+    rdfs:label "过户业务初始化步骤"@zh .
+
+transfer:InitCommonAttrStep a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ,
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:TransferOrder
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:producesEntity ;
+          owl:someValuesFrom transfer:TransferOrder
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:precedes ;
+          owl:someValuesFrom transfer:LocateTargetCustomerStep
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:mapsToComponent ;
+          owl:hasValue transfer:ServiceConfigurationComponent
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:usesAPI ;
+          owl:hasValue transfer:IAppCardAcceptOptService_initCommonAttr
+        ] ;
+    transfer:stepCode "INIT_COMMON_ATTR" ;
+    transfer:etomRef "Fulfillment.Service Configuration & Activation" ;
+    rdfs:label "公共属性初始化步骤"@zh .
+
+transfer:LocateTargetCustomerStep a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ,
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:TargetCustomer
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:producesEntity ;
+          owl:someValuesFrom transfer:TargetCustomer
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:precedes ;
+          owl:someValuesFrom transfer:VerifyTargetCustomerStep
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:mapsToComponent ;
+          owl:hasValue transfer:PartyManagementComponent
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:usesAPI ;
+          owl:hasValue transfer:ICustomerLocationService_listCustomers
+        ] ;
+    transfer:stepCode "LOCATE_TARGET" ;
+    transfer:etomRef "CRM.Customer Management > Identify Customer" ;
+    rdfs:label "定位目标客户步骤"@zh .
+
+transfer:VerifyTargetCustomerStep a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ,
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:TargetCustomer
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:producesEntity ;
+          owl:someValuesFrom transfer:AuthorizationRecord
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:precedes ;
+          owl:someValuesFrom transfer:SaveOrderStep
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:mapsToComponent ;
+          owl:hasValue transfer:PartyManagementComponent
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:usesAPI ;
+          owl:hasValue transfer:ICustomerAuthService_authCustomer
+        ] ;
+    transfer:stepCode "VERIFY_TARGET" ;
+    transfer:etomRef "CRM.Customer Management > Validate Customer" ;
+    rdfs:label "目标客户鉴权步骤"@zh .
+
+transfer:SaveOrderStep a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ,
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:TransferOrder
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:AuthorizationRecord
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:TransferableSubscription
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:producesEntity ;
+          owl:someValuesFrom transfer:TransferOrder
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:precedes ;
+          owl:someValuesFrom transfer:ConfirmOrderStep
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:mapsToComponent ;
+          owl:hasValue transfer:OrderCaptureComponent
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:usesAPI ;
+          owl:hasValue transfer:BusinessAcceptService_saveOrder
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:enforcesRule ;
+          owl:hasValue transfer:TransferEligibilityRule
+        ] ;
+    transfer:stepCode "SAVE_ORDER" ;
+    transfer:etomRef "Fulfillment.Customer Order Handling > Validate Order" ;
+    rdfs:label "订单保存步骤"@zh .
+
+transfer:ConfirmOrderStep a owl:Class ;
+    rdfs:subClassOf transfer:ProcessStep ,
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:TransferOrder
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:requiresEntity ;
+          owl:someValuesFrom transfer:PaymentRecord
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:producesEntity ;
+          owl:someValuesFrom transfer:TransferOrder
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:mapsToComponent ;
+          owl:hasValue transfer:BillingManagementComponent
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:usesAPI ;
+          owl:hasValue transfer:CashierTaiService_updateConfirm
+        ],
+        [ a owl:Restriction ;
+          owl:onProperty transfer:enforcesRule ;
+          owl:hasValue transfer:PaymentConfirmationRule
+        ] ;
+    transfer:stepCode "CONFIRM_ORDER" ;
+    transfer:etomRef "Revenue Management.Billing > Manage Payments" ;
+    rdfs:label "订单确认步骤"@zh .

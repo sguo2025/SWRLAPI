@@ -1,0 +1,21 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /ontology
+
+spring:
+  application:
+    name: transfer-order-ontology-service
+  
+logging:
+  level:
+    root: INFO
+    com.iwhalecloud: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# OWL本体配置
+ontology:
+  file:
+    path: classpath:owl/transfer_order_ontology.owl
+  namespace: https://iwhalecloud.com/ontology/transfer#
