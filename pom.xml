@@ -48,6 +48,13 @@
             <version>${owlapi.version}</version>
         </dependency>
 
+        <!-- SWRL API -->
+        <dependency>
+            <groupId>edu.stanford.swrl</groupId>
+            <artifactId>swrlapi</artifactId>
+            <version>${swrlapi.version}</version>
+        </dependency>
+
         <!-- Lombok (可选，用于简化代码) -->
         <dependency>
             <groupId>org.projectlombok</groupId>

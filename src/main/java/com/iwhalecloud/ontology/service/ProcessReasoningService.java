@@ -2,6 +2,7 @@ package com.iwhalecloud.ontology.service;
 
 import com.iwhalecloud.ontology.model.ProcessStepInfo;
 import com.iwhalecloud.ontology.model.TransferOrderProcess;
+import com.iwhalecloud.ontology.model.BusinessRuleDefinition;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.semanticweb.owlapi.model.*;
@@ -13,7 +14,7 @@ import java.util.stream.Collectors;
 
 /**
  * 流程推理服务
- * 基于OWL本体进行步骤推理和流程控制
+ * 基于OWL本体和SWRL规则进行步骤推理和流程控制
  */
 @Service
 @Slf4j
@@ -21,6 +22,7 @@ import java.util.stream.Collectors;
 public class ProcessReasoningService {
 
     private final OntologyService ontologyService;
+    private final SWRLRuleEngine swrlRuleEngine;
     
     // 8个步骤的定义
     private static final Map<Integer, String> STEP_CODES = Map.of(
@@ -179,61 +181,259 @@ public class ProcessReasoningService {
 
     /**
      * 检查业务规则
+     * 基于SWRL规则引擎执行规则校验
      */
     private Map<String, Object> checkBusinessRules(String orderId, Integer stepNumber) {
         Map<String, Object> results = new HashMap<>();
         results.put("canProceed", true);
         
         try {
+            log.info("执行SWRL规则检查: orderId={}, stepNumber={}", orderId, stepNumber);
+            
+            // 获取本体
+            OWLOntology ontology = ontologyService.getOntology();
+            
             // 查询订单相关的客户信息
             Map<String, Object> orderProps = ontologyService.getIndividualProperties(orderId);
             
             if (orderProps == null || !orderProps.containsKey("dataProperties")) {
                 results.put("canProceed", true);
                 results.put("message", "订单不存在或无属性，允许继续");
+                results.put("appliedRules", new ArrayList<>());
                 return results;
             }
             
             @SuppressWarnings("unchecked")
             Map<String, Object> dataProps = (Map<String, Object>) orderProps.get("dataProperties");
             
-            // 检查涉诈状态
-            if (dataProps.containsKey("custStatus") && "FRAUD".equals(dataProps.get("custStatus"))) {
+            // 收集应用的规则
+            List<String> appliedRules = new ArrayList<>();
+            List<Map<String, Object>> violatedRules = new ArrayList<>();
+            
+            // 获取适用于当前步骤的所有业务规则
+            List<BusinessRuleDefinition> applicableRules = BusinessRuleDefinition.getDefaultBusinessRules()
+                .stream()
+                .filter(rule -> rule.getApplicableSteps().contains(stepNumber) && rule.getEnabled())
+                .sorted(Comparator.comparingInt(BusinessRuleDefinition::getPriority).reversed())
+                .collect(Collectors.toList());
+            
+            log.info("当前步骤 {} 适用的规则数: {}", stepNumber, applicableRules.size());
+            
+            // 对每个规则进行检查
+            for (BusinessRuleDefinition ruleDef : applicableRules) {
+                log.debug("检查规则: {}", ruleDef.getRuleName());
+                
+                boolean ruleViolated = false;
+                String violationReason = null;
+                
+                // 根据规则类别执行相应的检查
+                switch (ruleDef.getCategory()) {
+                    case CUSTOMER_STATUS:
+                        // 检查客户状态相关规则
+                        Map<String, Object> customerCheckResult = checkCustomerStatusRules(dataProps, ruleDef);
+                        ruleViolated = (boolean) customerCheckResult.getOrDefault("violated", false);
+                        violationReason = (String) customerCheckResult.get("reason");
+                        break;
+                        
+                    case AUTHENTICATION:
+                        // 检查鉴权规则
+                        Map<String, Object> authCheckResult = checkAuthenticationRules(dataProps, ruleDef);
+                        ruleViolated = (boolean) authCheckResult.getOrDefault("violated", false);
+                        violationReason = (String) authCheckResult.get("reason");
+                        break;
+                        
+                    case PAYMENT:
+                        // 检查支付规则
+                        Map<String, Object> paymentCheckResult = checkPaymentRules(dataProps, ruleDef);
+                        ruleViolated = (boolean) paymentCheckResult.getOrDefault("violated", false);
+                        violationReason = (String) paymentCheckResult.get("reason");
+                        break;
+                        
+                    case DATA_VALIDATION:
+                        // 检查数据验证规则
+                        Map<String, Object> dataCheckResult = checkDataValidationRules(dataProps, ruleDef);
+                        ruleViolated = (boolean) dataCheckResult.getOrDefault("violated", false);
+                        violationReason = (String) dataCheckResult.get("reason");
+                        break;
+                        
+                    case STEP_PROGRESSION:
+                        // 步骤流转规则暂不阻断，仅记录
+                        appliedRules.add(ruleDef.getRuleName());
+                        continue;
+                        
+                    default:
+                        appliedRules.add(ruleDef.getRuleName());
+                        continue;
+                }
+                
+                appliedRules.add(ruleDef.getRuleName());
+                
+                if (ruleViolated) {
+                    log.warn("规则 {} 被触发，原因: {}", ruleDef.getRuleName(), violationReason);
+                    Map<String, Object> violation = new HashMap<>();
+                    violation.put("ruleName", ruleDef.getRuleName());
+                    violation.put("ruleId", ruleDef.getRuleId());
+                    violation.put("message", ruleDef.getViolationMessage());
+                    violation.put("reason", violationReason);
+                    violation.put("priority", ruleDef.getPriority());
+                    violatedRules.add(violation);
+                    
+                    // 如果是高优先级规则（优先级>=8），立即停止流程
+                    if (ruleDef.getPriority() >= 8) {
+                        results.put("canProceed", false);
+                        results.put("blockReason", ruleDef.getViolationMessage());
+                        results.put("violatedRules", violatedRules);
+                        results.put("appliedRules", appliedRules);
+                        results.put("blockingRule", ruleDef.getRuleName());
+                        log.info("高优先级规则被触发，阻止流程继续: {}", ruleDef.getRuleName());
+                        return results;
+                    }
+                }
+            }
+            
+            // 检查是否有任何违反的规则
+            if (!violatedRules.isEmpty()) {
                 results.put("canProceed", false);
-                results.put("blockReason", "涉诈用户不允许办理任何业务，待涉诈解除后方可继续办理");
-                results.put("ruleName", "FraudCustomerCheckRule");
-                return results;
+                results.put("blockReason", "业务规则检查失败，有" + violatedRules.size() + "条规则被触发");
+                results.put("violatedRules", violatedRules);
+            } else {
+                results.put("message", "所有业务规则检查通过");
+                results.put("violatedRules", new ArrayList<>());
             }
             
-            // 检查欠费状态（在过户相关步骤）
-            if (stepNumber >= 2 && dataProps.containsKey("arrearsStatus") && "ARREARS".equals(dataProps.get("arrearsStatus"))) {
-                results.put("canProceed", false);
-                results.put("blockReason", "用户存在欠费，不允许办理过户业务，请先缴清费用");
-                results.put("ruleName", "ArrearsCheckRule");
-                return results;
-            }
-            
-            // 步骤7需要检查鉴权是否通过
-            if (stepNumber == 7) {
-                // 这里应该检查是否有鉴权记录且状态为PASSED
-                results.put("message", "订单保存前检查鉴权状态");
-            }
-            
-            // 步骤8需要检查支付状态
-            if (stepNumber == 8) {
-                // 这里应该检查是否有支付记录且状态为SETTLED
-                results.put("message", "订单确认前检查支付状态");
-            }
-            
-            results.put("message", "所有业务规则检查通过");
+            results.put("appliedRules", appliedRules);
+            results.put("ruleCheckCount", appliedRules.size());
             
         } catch (Exception e) {
             log.error("业务规则检查失败", e);
             results.put("canProceed", true);
             results.put("message", "规则检查异常，默认允许继续: " + e.getMessage());
+            results.put("error", e.getClass().getSimpleName());
         }
         
         return results;
+    }
+    
+    /**
+     * 检查客户状态相关规则
+     */
+    private Map<String, Object> checkCustomerStatusRules(Map<String, Object> dataProps, BusinessRuleDefinition ruleDef) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("violated", false);
+        
+        try {
+            String ruleId = ruleDef.getRuleId();
+            
+            if ("FRAUD_CHECK".equals(ruleId)) {
+                String custStatus = (String) dataProps.get("custStatus");
+                if ("FRAUD".equals(custStatus)) {
+                    result.put("violated", true);
+                    result.put("reason", "客户状态为涉诈");
+                    log.warn("规则FRAUD_CHECK被触发");
+                }
+            } else if ("ARREARS_CHECK".equals(ruleId)) {
+                String arrearsStatus = (String) dataProps.get("arrearsStatus");
+                if ("ARREARS".equals(arrearsStatus)) {
+                    result.put("violated", true);
+                    result.put("reason", "客户存在欠费");
+                    log.warn("规则ARREARS_CHECK被触发");
+                }
+            } else if ("BLACKLIST_CHECK".equals(ruleId)) {
+                String blacklistStatus = (String) dataProps.get("blacklistStatus");
+                if ("IN_BLACKLIST".equals(blacklistStatus)) {
+                    result.put("violated", true);
+                    result.put("reason", "客户在黑名单中");
+                    log.warn("规则BLACKLIST_CHECK被触发");
+                }
+            }
+        } catch (Exception e) {
+            log.error("客户状态规则检查异常", e);
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 检查鉴权相关规则
+     */
+    private Map<String, Object> checkAuthenticationRules(Map<String, Object> dataProps, BusinessRuleDefinition ruleDef) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("violated", false);
+        
+        try {
+            String authStatus = (String) dataProps.get("authStatus");
+            
+            // 如果未进行过鉴权或鉴权失败，则规则被违反
+            if (authStatus == null || !authStatus.equals("PASSED")) {
+                result.put("violated", true);
+                result.put("reason", "鉴权状态为: " + (authStatus == null ? "未进行" : authStatus));
+                log.warn("规则AuthenticationCheckRule被触发");
+            }
+        } catch (Exception e) {
+            log.error("鉴权规则检查异常", e);
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 检查支付相关规则
+     */
+    private Map<String, Object> checkPaymentRules(Map<String, Object> dataProps, BusinessRuleDefinition ruleDef) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("violated", false);
+        
+        try {
+            String paymentStatus = (String) dataProps.get("paymentStatus");
+            
+            // 如果未完成支付，则规则被违反
+            if (paymentStatus == null || !paymentStatus.equals("SETTLED")) {
+                result.put("violated", true);
+                result.put("reason", "支付状态为: " + (paymentStatus == null ? "未进行" : paymentStatus));
+                log.warn("规则PaymentCheckRule被触发");
+            }
+        } catch (Exception e) {
+            log.error("支付规则检查异常", e);
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 检查数据验证相关规则
+     */
+    private Map<String, Object> checkDataValidationRules(Map<String, Object> dataProps, BusinessRuleDefinition ruleDef) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("violated", false);
+        
+        try {
+            String ruleId = ruleDef.getRuleId();
+            
+            if ("CUST_INFO_CHECK".equals(ruleId)) {
+                // 检查必要的客户信息是否存在
+                List<String> requiredFields = Arrays.asList("custId", "custName", "contactInfo");
+                for (String field : requiredFields) {
+                    if (dataProps.get(field) == null || dataProps.get(field).toString().isEmpty()) {
+                        result.put("violated", true);
+                        result.put("reason", "缺少必要字段: " + field);
+                        log.warn("规则CustomerInfoCompletenessRule被触发: 缺少{}", field);
+                        return result;
+                    }
+                }
+            } else if ("TRANSFER_NUM_CHECK".equals(ruleId)) {
+                // 检查过户号码是否有效
+                String numberStatus = (String) dataProps.get("numberStatus");
+                if (numberStatus == null || !numberStatus.equals("AVAILABLE")) {
+                    result.put("violated", true);
+                    result.put("reason", "过户号码不可用");
+                    log.warn("规则TransferNumberValidityRule被触发");
+                }
+            }
+        } catch (Exception e) {
+            log.error("数据验证规则检查异常", e);
+        }
+        
+        return result;
     }
 
     /**
@@ -361,8 +561,17 @@ public class ProcessReasoningService {
         Map<String, Object> result = new HashMap<>();
         
         try {
+            // 获取本体
+            OWLOntology ontology = ontologyService.getOntology();
+            
+            // 首先注册业务规则到本体
+            log.info("注册业务规则到本体...");
+            Map<String, Object> ruleRegistrationResult = swrlRuleEngine.registerBusinessRules(ontology);
+            result.put("ruleRegistration", ruleRegistrationResult);
+            
             // 执行SWRL推理
-            Map<String, Object> reasoningResult = ontologyService.executeSWRLReasoning();
+            log.info("执行SWRL推理...");
+            Map<String, Object> reasoningResult = swrlRuleEngine.executeSWRLReasoning(ontology);
             result.put("reasoningResult", reasoningResult);
             
             // 获取更新后的流程状态
@@ -372,10 +581,81 @@ public class ProcessReasoningService {
             result.put("status", "success");
             result.put("message", "推理执行成功并更新流程状态");
             
+            log.info("SWRL推理和流程更新完成");
+            
         } catch (Exception e) {
             log.error("推理执行失败", e);
             result.put("status", "error");
             result.put("message", e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 初始化本体中的SWRL规则
+     */
+    public Map<String, Object> initializeSWRLRules() {
+        log.info("初始化SWRL规则...");
+        
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            OWLOntology ontology = ontologyService.getOntology();
+            Map<String, Object> ruleResult = swrlRuleEngine.registerBusinessRules(ontology);
+            
+            result.put("status", ruleResult.get("status"));
+            result.put("message", ruleResult.get("message"));
+            result.put("ruleDetails", ruleResult);
+            
+            log.info("SWRL规则初始化完成: {}", ruleResult.get("message"));
+            
+        } catch (Exception e) {
+            log.error("SWRL规则初始化失败", e);
+            result.put("status", "error");
+            result.put("message", "规则初始化失败: " + e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 获取所有适用的业务规则
+     */
+    public Map<String, Object> getApplicableBusinessRules(Integer stepNumber) {
+        log.info("获取步骤 {} 的适用业务规则", stepNumber);
+        
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            List<BusinessRuleDefinition> applicableRules = BusinessRuleDefinition.getDefaultBusinessRules()
+                .stream()
+                .filter(rule -> rule.getApplicableSteps().contains(stepNumber) && rule.getEnabled())
+                .sorted(Comparator.comparingInt(BusinessRuleDefinition::getPriority).reversed())
+                .collect(Collectors.toList());
+            
+            List<Map<String, Object>> ruleInfoList = new ArrayList<>();
+            for (BusinessRuleDefinition rule : applicableRules) {
+                Map<String, Object> ruleInfo = new HashMap<>();
+                ruleInfo.put("ruleId", rule.getRuleId());
+                ruleInfo.put("ruleName", rule.getRuleName());
+                ruleInfo.put("description", rule.getDescription());
+                ruleInfo.put("category", rule.getCategory().name());
+                ruleInfo.put("priority", rule.getPriority());
+                ruleInfo.put("violationMessage", rule.getViolationMessage());
+                ruleInfo.put("checkAttributes", rule.getCheckAttributes());
+                ruleInfoList.add(ruleInfo);
+            }
+            
+            result.put("status", "success");
+            result.put("stepNumber", stepNumber);
+            result.put("ruleCount", ruleInfoList.size());
+            result.put("rules", ruleInfoList);
+            
+        } catch (Exception e) {
+            log.error("获取适用规则失败", e);
+            result.put("status", "error");
+            result.put("message", "获取规则失败: " + e.getMessage());
         }
         
         return result;

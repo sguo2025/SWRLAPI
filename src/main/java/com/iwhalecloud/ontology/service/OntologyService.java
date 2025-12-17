@@ -14,8 +14,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * OWL本体服务 - 简化版本（不依赖SWRLAPI）
- * 负责加载OWL本体、执行推理、查询类和个体
+ * OWL本体服务
+ * 负责加载OWL本体、执行推理（支持SWRLAPI）、查询类和个体
  */
 @Service
 @Slf4j
@@ -155,7 +155,7 @@ public class OntologyService {
     public Map<String, Object> executeSWRLReasoning() {
         Map<String, Object> result = new HashMap<>();
         result.put("status", "success");
-        result.put("message", "推理完成（简化版本，使用OWL推理器）");
+        result.put("message", "推理完成（使用OWL推理器）");
         result.put("reasonerType", "Structural Reasoner");
         result.put("timestamp", System.currentTimeMillis());
         
@@ -281,5 +281,33 @@ public class OntologyService {
         result.put("status", "success");
         log.info("客户状态检查完成: {}", result);
         return result;
+    }
+
+    /**
+     * 获取本体实例（用于SWRL规则引擎）
+     */
+    public OWLOntology getOntology() {
+        return ontology;
+    }
+
+    /**
+     * 获取OWL数据工厂（用于创建OWL元素）
+     */
+    public OWLDataFactory getDataFactory() {
+        return dataFactory;
+    }
+
+    /**
+     * 获取OWL本体管理器
+     */
+    public OWLOntologyManager getManager() {
+        return manager;
+    }
+
+    /**
+     * 获取OWL推理器
+     */
+    public OWLReasoner getReasoner() {
+        return reasoner;
     }
 }
