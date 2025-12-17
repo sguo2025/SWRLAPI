@@ -215,6 +215,45 @@ public class ProcessReasoningController {
     }
 
     /**
+     * 执行SWRL推理
+     * 
+     * 基于SWRLAPI执行规则推理，验证业务规则
+     */
+    @PostMapping("/execute-swrl-reasoning/{orderId}")
+    public ResponseEntity<Map<String, Object>> executeSWRLReasoning(@PathVariable String orderId) {
+        log.info("执行SWRL推理: 订单={}", orderId);
+        
+        Map<String, Object> result = processReasoningService.executeReasoningAndUpdateProcess(orderId);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 初始化SWRL规则
+     * 
+     * 初始化所有业务规则到本体
+     */
+    @PostMapping("/init-swrl-rules")
+    public ResponseEntity<Map<String, Object>> initializeSWRLRules() {
+        log.info("初始化SWRL规则");
+        
+        Map<String, Object> result = processReasoningService.initializeSWRLRules();
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 获取适用的业务规则
+     * 
+     * 获取指定步骤的适用业务规则列表
+     */
+    @GetMapping("/applicable-rules/{stepNumber}")
+    public ResponseEntity<Map<String, Object>> getApplicableRules(@PathVariable Integer stepNumber) {
+        log.info("获取步骤{}的适用规则", stepNumber);
+        
+        Map<String, Object> result = processReasoningService.getApplicableBusinessRules(stepNumber);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
      * 模拟完整流程执行
      * 
      * 从步骤1到步骤8模拟执行并返回每步的推理结果
