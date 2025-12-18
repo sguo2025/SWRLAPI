@@ -23,6 +23,7 @@ public class ProcessReasoningService {
 
     private final OntologyService ontologyService;
     private final SWRLRuleEngine swrlRuleEngine;
+    private final SWRLReasoningExecutor swrlReasoningExecutor;
     
     // 8个步骤的定义
     private static final Map<Integer, String> STEP_CODES = Map.of(
@@ -602,11 +603,18 @@ public class ProcessReasoningService {
         
         try {
             OWLOntology ontology = ontologyService.getOntology();
+            // 使用新的动态加载功能
             Map<String, Object> ruleResult = swrlRuleEngine.registerBusinessRules(ontology);
             
             result.put("status", ruleResult.get("status"));
             result.put("message", ruleResult.get("message"));
             result.put("ruleDetails", ruleResult);
+            
+            // 如果有加载的规则，返回其信息
+            Map<String, Object> loadedRules = swrlRuleEngine.getLoadedRules();
+            if (!loadedRules.isEmpty()) {
+                result.put("loadedRulesInfo", loadedRules);
+            }
             
             log.info("SWRL规则初始化完成: {}", ruleResult.get("message"));
             
@@ -614,6 +622,303 @@ public class ProcessReasoningService {
             log.error("SWRL规则初始化失败", e);
             result.put("status", "error");
             result.put("message", "规则初始化失败: " + e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 获取所有已加载的规则（从OWL本体中动态加载）
+     */
+    public Map<String, Object> getLoadedRules() {
+        log.info("获取所有已加载的规则");
+        
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            Map<String, Object> loadedRules = swrlRuleEngine.getLoadedRules();
+            result.put("status", "success");
+            result.put("ruleCount", loadedRules.get("totalRules"));
+            result.put("rules", loadedRules.get("rules"));
+            result.put("message", "成功获取已加载的规则");
+            
+        } catch (Exception e) {
+            log.error("获取已加载规则失败", e);
+            result.put("status", "error");
+            result.put("message", "获取规则失败: " + e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 根据规则代码获取规则详情
+     */
+    public Map<String, Object> getRuleByCode(String ruleCode) {
+        log.info("获取规则详情: {}", ruleCode);
+        
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            Map<String, Object> rule = swrlRuleEngine.getRuleByCode(ruleCode);
+            
+            if (rule != null) {
+                result.put("status", "success");
+                result.put("rule", rule);
+            } else {
+                result.put("status", "not_found");
+                result.put("message", "规则不存在: " + ruleCode);
+            }
+            
+        } catch (Exception e) {
+            log.error("获取规则详情失败", e);
+            result.put("status", "error");
+            result.put("message", "获取规则详情失败: " + e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 根据规则代码执行logicExpression推理
+     * @param ruleCode 规则代码
+     * @param context 推理上下文（包含输入数据）
+     * @return 推理结果
+     */
+    public Map<String, Object> executeRuleByCode(String ruleCode, Map<String, Object> context) {
+        log.info("执行规则推理: ruleCode={}", ruleCode);
+        
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            // 1. 获取规则定义
+            Map<String, Object> rule = swrlRuleEngine.getRuleByCode(ruleCode);
+            
+            if (rule == null) {
+                result.put("status", "not_found");
+                result.put("message", "规则不存在: " + ruleCode);
+                return result;
+            }
+            
+            // 2. 获取logicExpression
+            String logicExpression = (String) rule.get("ruleBody");
+            String logicType = (String) rule.get("ruleType");
+            
+            log.info("规则类型: {}, 表达式长度: {}", logicType, logicExpression.length());
+            
+            // 3. 根据规则类型执行推理
+            Map<String, Object> reasoningResult;
+            
+            if ("SWRL".equals(logicType)) {
+                // SWRL规则推理
+                OWLOntology ontology = ontologyService.getOntology();
+                reasoningResult = swrlReasoningExecutor.executeSWRLExpression(
+                    ontology, logicExpression, context
+                );
+            } else if ("DecisionTable".equals(logicType)) {
+                // 决策表规则推理
+                reasoningResult = executeDecisionTableRule(logicExpression, context);
+            } else {
+                // 其他类型规则
+                reasoningResult = new HashMap<>();
+                reasoningResult.put("status", "unsupported");
+                reasoningResult.put("message", "不支持的规则类型: " + logicType);
+            }
+            
+            // 4. 构建返回结果
+            result.put("status", "success");
+            result.put("ruleCode", ruleCode);
+            result.put("ruleType", logicType);
+            result.put("rule", rule);
+            result.put("reasoningResult", reasoningResult);
+            result.put("message", "规则执行完成");
+            
+            log.info("规则推理完成: {}", ruleCode);
+            
+        } catch (Exception e) {
+            log.error("规则推理失败", e);
+            result.put("status", "error");
+            result.put("message", "规则推理异常: " + e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 执行决策表规则
+     * @param expression 决策表表达式
+     * @param context 推理上下文
+     * @return 推理结果
+     */
+    private Map<String, Object> executeDecisionTableRule(String expression, Map<String, Object> context) {
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            log.info("执行决策表规则...");
+            
+            // 简单的决策表执行逻辑
+            // 格式: IF condition THEN action
+            String[] parts = expression.split("\\s+THEN\\s+");
+            
+            if (parts.length != 2) {
+                result.put("status", "error");
+                result.put("message", "决策表格式错误");
+                return result;
+            }
+            
+            String condition = parts[0].replaceAll("^IF\\s+", "").trim();
+            String action = parts[1].trim();
+            
+            // 评估条件
+            boolean conditionMet = evaluateCondition(condition, context);
+            
+            result.put("status", "success");
+            result.put("condition", condition);
+            result.put("conditionMet", conditionMet);
+            result.put("action", action);
+            
+            if (conditionMet) {
+                result.put("message", "条件满足，执行动作: " + action);
+                result.put("actionExecuted", true);
+            } else {
+                result.put("message", "条件不满足");
+                result.put("actionExecuted", false);
+            }
+            
+        } catch (Exception e) {
+            log.error("决策表执行异常", e);
+            result.put("status", "error");
+            result.put("message", "决策表执行异常: " + e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 简单的条件评估
+     */
+    private boolean evaluateCondition(String condition, Map<String, Object> context) {
+        if (context == null || context.isEmpty()) {
+            return false;
+        }
+        
+        // 简单的表达式评估
+        // 支持 > < = 等基本操作符
+        if (condition.contains(">")) {
+            String[] parts = condition.split(">");
+            Object left = context.get(parts[0].trim());
+            Object right = parseValue(parts[1].trim());
+            
+            if (left instanceof Number && right instanceof Number) {
+                return ((Number) left).doubleValue() > ((Number) right).doubleValue();
+            }
+        } else if (condition.contains("<")) {
+            String[] parts = condition.split("<");
+            Object left = context.get(parts[0].trim());
+            Object right = parseValue(parts[1].trim());
+            
+            if (left instanceof Number && right instanceof Number) {
+                return ((Number) left).doubleValue() < ((Number) right).doubleValue();
+            }
+        } else if (condition.contains("==") || condition.contains("=")) {
+            String[] parts = condition.split("(==|=)");
+            Object left = context.get(parts[0].trim());
+            Object right = parseValue(parts[1].trim());
+            
+            return Objects.equals(left, right);
+        }
+        
+        return false;
+    }
+    
+    /**
+     * 解析值（支持数字和字符串）
+     */
+    private Object parseValue(String value) {
+        value = value.trim();
+        
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e1) {
+            try {
+                return Double.parseDouble(value);
+            } catch (NumberFormatException e2) {
+                return value.replaceAll("['\"]", "");
+            }
+        }
+    }
+    
+    /**
+     * 执行所有业务规则的推理
+     * @param orderId 订单ID
+     * @param context 推理上下文
+     * @return 所有规则的推理结果
+     */
+    public Map<String, Object> executeAllRulesReasoning(String orderId, Map<String, Object> context) {
+        log.info("执行所有业务规则推理: orderId={}", orderId);
+        
+        Map<String, Object> result = new HashMap<>();
+        List<Map<String, Object>> ruleResults = new ArrayList<>();
+        
+        try {
+            // 获取所有已加载的规则
+            Map<String, Object> loadedRules = swrlRuleEngine.getLoadedRules();
+            List<Map<String, Object>> rules = (List<Map<String, Object>>) loadedRules.get("rules");
+            
+            if (rules == null || rules.isEmpty()) {
+                result.put("status", "no_rules");
+                result.put("message", "未找到任何业务规则");
+                return result;
+            }
+            
+            // 为上下文添加订单信息
+            if (context == null) {
+                context = new HashMap<>();
+            }
+            context.put("orderId", orderId);
+            
+            // 执行每条规则的推理
+            int successCount = 0;
+            int failCount = 0;
+            
+            for (Map<String, Object> rule : rules) {
+                String ruleCode = (String) rule.get("ruleCode");
+                
+                try {
+                    Map<String, Object> ruleResult = executeRuleByCode(ruleCode, context);
+                    ruleResults.add(ruleResult);
+                    
+                    if ("success".equals(ruleResult.get("status"))) {
+                        successCount++;
+                    } else {
+                        failCount++;
+                    }
+                } catch (Exception e) {
+                    log.warn("规则执行异常: {}", ruleCode, e);
+                    failCount++;
+                    
+                    Map<String, Object> errorResult = new HashMap<>();
+                    errorResult.put("ruleCode", ruleCode);
+                    errorResult.put("status", "error");
+                    errorResult.put("message", e.getMessage());
+                    ruleResults.add(errorResult);
+                }
+            }
+            
+            result.put("status", "success");
+            result.put("orderId", orderId);
+            result.put("totalRules", rules.size());
+            result.put("successCount", successCount);
+            result.put("failCount", failCount);
+            result.put("ruleResults", ruleResults);
+            result.put("message", String.format("推理完成: %d成功, %d失败", successCount, failCount));
+            
+            log.info("所有规则推理完成: {}", result.get("message"));
+            
+        } catch (Exception e) {
+            log.error("规则推理异常", e);
+            result.put("status", "error");
+            result.put("message", "推理异常: " + e.getMessage());
         }
         
         return result;

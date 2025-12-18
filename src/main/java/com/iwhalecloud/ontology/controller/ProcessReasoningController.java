@@ -302,4 +302,102 @@ public class ProcessReasoningController {
         
         return ResponseEntity.ok(response);
     }
+
+    /**
+     * 获取所有已加载的业务规则
+     * 返回从OWL本体中动态加载的所有规则定义
+     */
+    @GetMapping("/loaded-rules")
+    public ResponseEntity<Map<String, Object>> getLoadedRules() {
+        log.info("获取所有已加载的业务规则");
+        Map<String, Object> result = processReasoningService.getLoadedRules();
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 根据规则代码获取规则详情
+     * @param ruleCode 规则代码，如 FraudCustomerCheckRule
+     */
+    @GetMapping("/rule/{ruleCode}")
+    public ResponseEntity<Map<String, Object>> getRuleByCode(@PathVariable String ruleCode) {
+        log.info("获取规则详情: {}", ruleCode);
+        Map<String, Object> result = processReasoningService.getRuleByCode(ruleCode);
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 动态加载业务规则从OWL本体
+     * 强制重新加载所有规则
+     */
+    @PostMapping("/reload-rules")
+    public ResponseEntity<Map<String, Object>> reloadRules() {
+        log.info("重新加载业务规则");
+        Map<String, Object> result = processReasoningService.initializeSWRLRules();
+        return ResponseEntity.ok(result);
+    }
+    /**
+     * 根据规则代码执行logicExpression推理
+     * @param ruleCode 规则代码
+     * @param requestBody 推理上下文数据
+     */
+    @PostMapping("/reasoning/execute-rule/{ruleCode}")
+    public ResponseEntity<Map<String, Object>> executeRuleByCode(
+            @PathVariable String ruleCode,
+            @RequestBody(required = false) Map<String, Object> requestBody) {
+        log.info("执行规则推理: ruleCode={}", ruleCode);
+        
+        Map<String, Object> context = requestBody != null ? requestBody : new HashMap<>();
+        Map<String, Object> result = processReasoningService.executeRuleByCode(ruleCode, context);
+        
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 执行所有业务规则的推理
+     * @param orderId 订单ID
+     * @param requestBody 推理上下文数据
+     */
+    @PostMapping("/reasoning/execute-all/{orderId}")
+    public ResponseEntity<Map<String, Object>> executeAllRulesReasoning(
+            @PathVariable String orderId,
+            @RequestBody(required = false) Map<String, Object> requestBody) {
+        log.info("执行所有业务规则推理: orderId={}", orderId);
+        
+        Map<String, Object> context = requestBody != null ? requestBody : new HashMap<>();
+        Map<String, Object> result = processReasoningService.executeAllRulesReasoning(orderId, context);
+        
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 获取规则的logicExpression
+     * @param ruleCode 规则代码
+     */
+    @GetMapping("/rule/{ruleCode}/expression")
+    public ResponseEntity<Map<String, Object>> getRuleExpression(@PathVariable String ruleCode) {
+        log.info("获取规则表达式: {}", ruleCode);
+        
+        Map<String, Object> result = new HashMap<>();
+        
+        try {
+            Map<String, Object> rule = processReasoningService.getRuleByCode(ruleCode);
+            
+            if (rule != null) {
+                result.put("status", "success");
+                result.put("ruleCode", ruleCode);
+                result.put("expression", rule.get("ruleBody"));
+                result.put("type", rule.get("ruleType"));
+                result.put("priority", rule.get("priority"));
+                result.put("description", rule.get("description"));
+            } else {
+                result.put("status", "not_found");
+                result.put("message", "规则不存在");
+            }
+        } catch (Exception e) {
+            result.put("status", "error");
+            result.put("message", e.getMessage());
+        }
+        
+        return ResponseEntity.ok(result);
+    }
 }
